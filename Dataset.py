@@ -20,9 +20,8 @@ class Dataset(object):
         self.testRatings = self.load_rating_file_as_list(path + ".test.rating")
         self.testNegatives = self.load_negative_file(path + ".test.negative")
         assert len(self.testRatings) == len(self.testNegatives)
-        
         self.num_users, self.num_items = self.trainMatrix.shape
-        
+
     def load_rating_file_as_list(self, filename):
         ratingList = []
         with open(filename, "r") as f:
@@ -33,7 +32,7 @@ class Dataset(object):
                 ratingList.append([user, item])
                 line = f.readline()
         return ratingList
-    
+
     def load_negative_file(self, filename):
         negativeList = []
         with open(filename, "r") as f:
@@ -46,7 +45,7 @@ class Dataset(object):
                 negativeList.append(negatives)
                 line = f.readline()
         return negativeList
-    
+
     def load_rating_file_as_matrix(self, filename):
         '''
         Read .rating file and Return dok matrix.

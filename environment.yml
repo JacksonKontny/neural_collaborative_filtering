@@ -1,0 +1,13 @@
+name: ncf
+channels:
+    - https://conda.anaconda.org/menpo
+    - conda-forge
+dependencies:
+    - keras=1.0.7
+    - theano
+    - numpy
+    - pandas
+    - scikit-learn
+    - scipy
+    - jupyter
+    - matplotlib

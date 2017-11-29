@@ -24,6 +24,7 @@ import sys
 import math
 import argparse
 from sklearn.model_selection import StratifiedKFold
+from embedding_helper import save_embedding
 
 #################### Arguments ####################
 def parse_args():
@@ -52,39 +53,33 @@ def parse_args():
                         help='Show performance per X iterations')
     parser.add_argument('--out', type=int, default=1,
                         help='Whether to save the trained model.')
-    parser.add_argument('--genre_path', nargs='?', default='Data/data/ml-20m/movies.csv',
-                        help='Where movie genre information is stored')
     return parser.parse_args()
 
 def init_normal(shape, name=None):
     return initializers.VarianceScaling(scale=0.01)
 
-def get_model(num_users, num_items, num_genres, latent_dim, regs=[0,0]):
+def get_model(num_users, num_items, latent_dim, regs=[0,0]):
     # Input variables
     user_input = Input(shape=(1,), dtype='int32', name = 'user_input')
     item_input = Input(shape=(1,), dtype='int32', name = 'item_input')
-    genre_input = Input(shape=(1,), dtype='int32', name = 'genre_input')
 
     MF_Embedding_User = Embedding(input_dim = num_users, output_dim = latent_dim, name = 'user_embedding',
                                   embeddings_regularizer = l2(regs[0]), input_length=1)
     MF_Embedding_Item = Embedding(input_dim = num_items, output_dim = latent_dim, name = 'item_embedding',
                                   embeddings_regularizer = l2(regs[1]), input_length=1)
-    MF_Embedding_Genre = Embedding(input_dim = num_genres, output_dim = latent_dim, name = 'genre_embedding',
-                                  embeddings_regularizer = l2(regs[1]), input_length=1)
 
     # Crucial to flatten an embedding vector!
     user_latent = Flatten()(MF_Embedding_User(user_input))
     item_latent = Flatten()(MF_Embedding_Item(item_input))
-    genre_latent = Flatten()(MF_Embedding_Genre(genre_input))
 
     # Element-wise product of user and item embeddings 
-    predict_vector = merge([user_latent, item_latent, genre_latent], mode = 'mul')
+    predict_vector = merge([user_latent, item_latent], mode = 'mul')
 
     # Final prediction layer
     #prediction = Lambda(lambda x: K.sigmoid(K.sum(x)), output_shape=(1,))(predict_vector)
     prediction = Dense(10, activation='softmax', init='lecun_uniform', name='prediction')(predict_vector)
 
-    model = Model(input=[user_input, item_input, genre_input], output=prediction)
+    model = Model(input=[user_input, item_input], output=prediction)
 
     return model
 
@@ -98,7 +93,6 @@ if __name__ == '__main__':
     epochs = args.epochs
     batch_size = args.batch_size
     verbose = args.verbose
-    genre_path = args.genre_path
     save_name = args.save_name
     
     topK = 10
@@ -108,16 +102,15 @@ if __name__ == '__main__':
     
     # Loading data
     t1 = time()
-    dataset = Dataset(args.path + args.dataset, genre_path=genre_path)
+    dataset = Dataset(args.path + args.dataset,)
     train_x, train_y, test_x, test_y = dataset.train_x, dataset.train_y, dataset.test_x, dataset.test_y
     num_users = dataset.num_users
     num_items = dataset.num_items
-    num_genres = dataset.num_genres
     print("Load data done [%.1f s]. #user=%d, #item=%d, #train=%d, #test=%d" 
           %(time()-t1, num_users, num_items, train_x.shape[0], len(test_y)))
 
     # Build model
-    model = get_model(num_users, num_items, num_genres, num_factors, regs)
+    model = get_model(num_users, num_items, num_factors, regs)
     if learner.lower() == "adagrad":
         model.compile(
             optimizer=Adagrad(lr=learning_rate), loss='categorical_crossentropy',
@@ -141,10 +134,9 @@ if __name__ == '__main__':
     t1 = time()
     test_user = test_x.as_matrix()[:, 0]
     test_item = test_x.as_matrix()[:, 1]
-    test_genre = test_x.as_matrix()[:, 2]
     test_label = test_y.as_matrix()
 
-    initial_evaluation = model.evaluate([test_user, test_item, test_genre], test_label)
+    initial_evaluation = model.evaluate([test_user, test_item], test_label)
     # (hits, ndcgs) = evaluate_model(model, testRatings, testNegatives, topK, evaluation_threads)
     # hr, ndcg = np.array(hits).mean(), np.array(ndcgs).mean()
     #mf_embedding_norm = np.linalg.norm(model.get_layer('user_embedding').get_weights())+np.linalg.norm(model.get_layer('item_embedding').get_weights())
@@ -160,12 +152,11 @@ if __name__ == '__main__':
         # Generate training instances
         user_input = train_x['user'].as_matrix()
         item_input = train_x['item'].as_matrix()
-        genre_input = train_x['genres'].as_matrix()
         labels = train_y.as_matrix()
 
         # Training
         hist = model.fit(
-            [user_input, item_input, genre_input], #input
+            [user_input, item_input], #input
             labels, # labels
             batch_size=batch_size,
             epochs=1,
@@ -176,7 +167,7 @@ if __name__ == '__main__':
 
         # Evaluation
         if epoch %verbose == 0:
-            loss = model.evaluate([test_user, test_item, test_genre], test_label)
+            loss = model.evaluate([test_user, test_item], test_label)
             # (hits, ndcgs) = evaluate_model(model, testRatings, testNegatives, topK, evaluation_threads)
             # hr, ndcg, loss = np.array(hits).mean(), np.array(ndcgs).mean(), hist.history['loss'][0]
             print('Iteration %d [%.1f s]\txe = %.4f [%.1f s]\tmae = %.4f\tcat acc = %.4f \t5k acc = %.4f'
@@ -186,9 +177,9 @@ if __name__ == '__main__':
                 best_loss = loss
                 if args.out > 0:
                     model.save_weights(model_out_file, overwrite=True)
-                    save_embedding(model, dataset.user_idx_map, 3, '{}_user_mf_test.pickle'.format(save_name))
-                    save_embedding(model, dataset.item_idx_map, 4, '{}_item_mf_test.pickle'.format(save_name))
-            save_embedding(model, dataset.user_idx_map, 3, '{}_user_mf_train.pickle'.format(save_name))
-            save_embedding(model, dataset.item_idx_map, 4, '{}_item_mf_train.pickle'.format(save_name))
+                    save_embedding(model, dataset.user_idx_map, 2, '{}_user_mf_test.pickle'.format(save_name))
+                    save_embedding(model, dataset.item_idx_map, 3, '{}_item_mf_test.pickle'.format(save_name))
+            save_embedding(model, dataset.user_idx_map, 2, '{}_user_mf_train.pickle'.format(save_name))
+            save_embedding(model, dataset.item_idx_map, 3, '{}_item_mf_train.pickle'.format(save_name))
 
         print("The best GMF model is saved to %s" %(model_out_file))
